@@ -1,0 +1,43 @@
+[package]
+name = "youtrack-mcp"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+description = "Lean YouTrack MCP server: 16 consolidated tools, ~10x smaller tool schema than alternatives, correct subtask hierarchy, tags, board/sprint, work-item types, attachments."
+license = "MIT"
+authors = ["sensiarion"]
+repository = "https://github.com/sensiarion/youtrack-mcp"
+homepage = "https://github.com/sensiarion/youtrack-mcp"
+readme = "README.md"
+keywords = ["youtrack", "mcp", "model-context-protocol", "llm", "agent"]
+categories = ["command-line-utilities", "api-bindings"]
+
+[[bin]]
+name = "youtrack-mcp"
+path = "src/main.rs"
+
+[dependencies]
+rmcp = { version = "1.7", features = ["server", "transport-io", "macros", "schemars"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-std", "sync"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "multipart", "rustls-tls"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+schemars = { version = "1", features = ["chrono04"] }
+thiserror = "2"
+anyhow = "1"
+chrono = { version = "0.4", features = ["serde"] }
+chrono-tz = "0.10"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+base64 = "0.22"
+
+[profile.release]
+strip = true
+lto = "thin"
+codegen-units = 1
+panic = "abort"
+
+# The profile that 'dist' will build with
+[profile.dist]
+inherits = "release"
+lto = "thin"

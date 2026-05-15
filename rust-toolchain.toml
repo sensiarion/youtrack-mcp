@@ -1,0 +1,5 @@
+[toolchain]
+# Pinned: dependency tree (darling 0.23, icu 2.x) requires rustc >= 1.88.
+# Concrete version for reproducible builds; rustup auto-installs it on use.
+channel = "1.94.0"
+components = ["clippy", "rustfmt"]
