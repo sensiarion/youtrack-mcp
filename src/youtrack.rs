@@ -9,9 +9,9 @@ use tokio::sync::RwLock;
 use crate::config::Config;
 use crate::error::{AppError, Result};
 
-const F_ISSUE: &str = "id,idReadable,summary,description,usesMarkdown,created,updated,resolved,project(id,shortName,name),parent(id,idReadable),assignee(id,login,name),reporter(id,login,name),tags(id,name),customFields(id,name,value(id,login,name,presentation),$type)";
+const F_ISSUE: &str = "id,idReadable,summary,description,usesMarkdown,created,updated,resolved,project(id,shortName,name),parent(issues(idReadable,summary)),assignee(id,login,name),reporter(id,login,name),tags(id,name),customFields(id,name,value(id,login,name,presentation),$type)";
 const F_ISSUE_SHORT: &str = "id,idReadable,summary,project(shortName),customFields(name,value(name,login,presentation),$type)";
-const F_ISSUE_FULL: &str = "id,idReadable,summary,description,usesMarkdown,project(id,shortName,name),parent(id,idReadable),assignee(login,name),tags(name),customFields(name,value(name,login,presentation),$type)";
+const F_ISSUE_FULL: &str = "id,idReadable,summary,description,usesMarkdown,project(id,shortName,name),parent(issues(idReadable,summary)),assignee(login,name),tags(name),customFields(name,value(name,login,presentation),$type)";
 const F_LINKS: &str = "id,direction,linkType(id,name,directed,sourceToTarget,targetToSource),issues(idReadable,summary,project(shortName),assignee(login,name))";
 const F_LINK_TYPES: &str = "id,name,directed,sourceToTarget,targetToSource,aggregation";
 const F_COMMENT: &str = "id,text,usesMarkdown,author(id,login,name),created,updated";
@@ -301,9 +301,12 @@ impl YouTrack {
             }
             None => {
                 let cur = self
-                    .get(&format!("/api/issues/{child_readable}"), &self.fq("parent(idReadable)"))
+                    .get(
+                        &format!("/api/issues/{child_readable}"),
+                        &self.fq("parent(issues(idReadable))"),
+                    )
                     .await?;
-                if let Some(p) = cur.pointer("/parent/idReadable").and_then(|x| x.as_str()) {
+                if let Some(p) = cur.pointer("/parent/issues/0/idReadable").and_then(|x| x.as_str()) {
                     self.command(&format!("remove subtask of {p}"), child_readable).await?;
                 }
                 Ok(())
