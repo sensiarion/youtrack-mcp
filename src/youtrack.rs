@@ -246,16 +246,6 @@ impl YouTrack {
             .ok_or_else(|| AppError::Bad(format!("unknown link type '{name}'")))
     }
 
-    async fn issue_internal_id(&self, id_readable: &str) -> Result<String> {
-        let v = self
-            .get(&format!("/api/issues/{id_readable}"), &self.fq("id"))
-            .await?;
-        v.get("id")
-            .and_then(|x| x.as_str())
-            .map(|s| s.to_string())
-            .ok_or_else(|| AppError::Bad(format!("issue '{id_readable}' has no internal id")))
-    }
-
     // ---- issues ----
 
     pub async fn issue_get(&self, id: &str) -> Result<Value> {
@@ -300,9 +290,25 @@ impl YouTrack {
         Ok(json!({"deleted": true, "id": id}))
     }
 
-    async fn parent_ref(&self, parent_id: &str) -> Result<Value> {
-        let pid = self.issue_internal_id(&self.cfg.expand_issue_id(parent_id)).await?;
-        Ok(json!({"id": pid}))
+    /// Parent/child on this on-prem is only honored via the command API
+    /// (`subtask of <parent>` on the child); the issue `parent` body field is
+    /// silently ignored. `parent=None` detaches from the current parent.
+    async fn set_parent(&self, child_readable: &str, parent: Option<&str>) -> Result<()> {
+        match parent {
+            Some(p) => {
+                let p = self.cfg.expand_issue_id(p);
+                self.command(&format!("subtask of {p}"), child_readable).await
+            }
+            None => {
+                let cur = self
+                    .get(&format!("/api/issues/{child_readable}"), &self.fq("parent(idReadable)"))
+                    .await?;
+                if let Some(p) = cur.pointer("/parent/idReadable").and_then(|x| x.as_str()) {
+                    self.command(&format!("remove subtask of {p}"), child_readable).await?;
+                }
+                Ok(())
+            }
+        }
     }
 
     pub async fn issue_create(&self, a: &crate::model::IssueWrite) -> Result<Value> {
@@ -319,9 +325,6 @@ impl YouTrack {
         }
         if let Some(m) = a.markdown {
             body["usesMarkdown"] = json!(m);
-        }
-        if let Some(p) = a.parent_id.as_deref().filter(|s| !s.is_empty()) {
-            body["parent"] = self.parent_ref(p).await?;
         }
         let created = self.post("/api/issues", &self.fq(F_ISSUE), &body).await?;
         let internal = created.get("id").and_then(|x| x.as_str()).unwrap_or_default().to_string();
@@ -349,13 +352,6 @@ impl YouTrack {
         }
         if let Some(m) = a.markdown {
             body["usesMarkdown"] = json!(m);
-        }
-        if let Some(p) = &a.parent_id {
-            body["parent"] = if p.is_empty() {
-                Value::Null
-            } else {
-                self.parent_ref(p).await?
-            };
         }
         let mut current = if body.as_object().map(|o| !o.is_empty()).unwrap_or(false) {
             Some(self.post(&format!("/api/issues/{id}"), &self.fq(F_ISSUE), &body).await?)
@@ -394,6 +390,14 @@ impl YouTrack {
         let mut changed = false;
         if body.as_object().map(|o| !o.is_empty()).unwrap_or(false) {
             self.post(&format!("/api/issues/{id}"), &[], &body).await?;
+            changed = true;
+        }
+        if let Some(p) = &a.parent_id {
+            if p.is_empty() {
+                self.set_parent(readable, None).await?;
+            } else {
+                self.set_parent(readable, Some(p)).await?;
+            }
             changed = true;
         }
         if let Some(board) = &a.board {
