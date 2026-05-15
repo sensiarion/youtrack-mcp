@@ -160,7 +160,7 @@ cargo build --release
 # binary at target/release/youtrack-mcp
 ```
 
-Releases (prebuilt binaries + installers for macOS arm64/x64, Linux arm64/x64, Windows x64) are produced by [cargo-dist](https://opensource.axo.dev/cargo-dist/) on every `v*` tag.
+Releases (prebuilt binaries + installers for macOS Apple Silicon, Linux arm64/x64, Windows x64) are produced by [cargo-dist](https://opensource.axo.dev/cargo-dist/) on every `v*` tag. Intel Macs are not prebuilt — build from source as above (`cargo install --git …`); the binary path is identical.
 
 ## License
 

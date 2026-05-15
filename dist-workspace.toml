@@ -9,11 +9,14 @@ cargo-dist-version = "0.30.0"
 ci = "github"
 # The installers to generate for each app
 installers = ["shell", "powershell"]
-# Target platforms to build apps for (Rust target-triple syntax)
-targets = ["aarch64-apple-darwin", "aarch64-unknown-linux-gnu", "x86_64-apple-darwin", "x86_64-unknown-linux-gnu", "x86_64-pc-windows-msvc"]
+# Target platforms to build apps for (Rust target-triple syntax).
+# x86_64-apple-darwin (Intel Mac) intentionally omitted: GitHub's free
+# Intel-mac runner queue is unreliable (jobs sit queued indefinitely) and
+# Apple Silicon is native via aarch64-apple-darwin. Intel-mac users build
+# from source.
+targets = ["aarch64-apple-darwin", "aarch64-unknown-linux-gnu", "x86_64-unknown-linux-gnu", "x86_64-pc-windows-msvc"]
 
-# Pin macOS to current GA images; dist's older default (macos-12) was
-# retired by GitHub, leaving those jobs stuck queued forever.
+# Pin macOS to a current GA image (dist's older default macos-12 was
+# retired by GitHub, which left those jobs stuck queued forever).
 [dist.github-custom-runners]
-x86_64-apple-darwin = "macos-13"
 aarch64-apple-darwin = "macos-14"
