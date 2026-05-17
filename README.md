@@ -9,79 +9,62 @@ A drop-in replacement for heavier YouTrack MCPs:
 - **~10× smaller tool schema** — 16 consolidated tools (~2.9k tokens in `tools/list`) instead of 50+ (~23k tokens). Less context burned on every request.
 - **Correct subtask hierarchy** — parent set reliably via the command API; the real parent issue is surfaced (not an opaque link id).
 - **Complete write surface** — tags, agile board/sprint, work-item type for time tracking, attachments, article + comment create/edit, issue delete.
-- **Lean responses** — only the fields an agent needs; YouTrack `$type` noise stripped.
 - **Safe by design** — never creates tags (only applies existing ones); secrets never leak into error messages.
 
 ## Tools
 
-`issue_write` `issue_get` `issue_search` `issue_links` `link_write` `comment_write` `comments_list` `article_write` `article_get` `workitem_write` `workitems_list` `workitems_report` `activity` `users` `meta` `attachment`
+16 consolidated tools. Each takes an `op`/`kind` discriminator where it covers several operations.
+
+| Tool | What it does |
+|---|---|
+| `issue_write` | Create, update or delete an issue: summary, description, `parentId` (native subtask), assignee, tags (must exist), state, board/sprint. `op=delete` is irreversible. |
+| `issue_get` | Get a single issue by id with full fields. |
+| `issue_search` | Search issues by YouTrack query. `fields` short \| full. |
+| `issue_links` | List links of an issue (direction, type, related issues). |
+| `link_write` | Add or remove an issue link. `role` outward \| inward for directed types. For parent/child use `issue_write.parentId`. |
+| `comment_write` | Create or update a comment on an issue or article (entity). `op=update` needs `commentId`. |
+| `comments_list` | List comments of an issue or article (entity). |
+| `article_write` | Create or update a knowledge-base article. |
+| `article_get` | Get an article by id (`op get`) or list articles (`op list`, optional query). |
+| `workitem_write` | Create / update / delete a time-tracking work item. `type` = work item type name/id. `idempotent` skips duplicates. |
+| `workitems_list` | List / aggregate work items by author and date range. |
+| `workitems_report` | Per-day expected-vs-actual worktime report (480m/day, skips weekends/holidays). |
+| `activity` | Activity feed. `scope=issue` (needs `issueId`, optional author) \| `user` (needs author, defaults last 30d). Categories default to CustomFieldCategory, CommentsCategory. Dates ISO or unix ms. |
+| `users` | Users: `op` list (optional query) \| me \| get (by id). |
+| `meta` | Discovery: `kind` projects \| link_types \| work_item_types (optional project). |
+| `attachment` | Issue attachments: `op` list \| get \| upload \| download \| delete. Upload via `contentBase64`; download returns base64 unless a path is given. |
 
 ---
 
-## Install (no Rust, copy-paste)
+## Install
 
-You do **not** need Rust or any build tools. Three steps: install the binary, get a token, register the MCP. ~3 minutes.
+No Rust, no build step, no binary to manage. The prebuilt server is fetched and run by [mcp-bin](https://github.com/sensiarion/mcp-bin) via `npx`. Only requirement: **Node ≥ 22**. Works on macOS, Linux and Windows. ~2 minutes.
 
-### 1. Install the binary
-
-**macOS / Linux** — paste into a terminal:
-
-```sh
-curl --proto '=https' --tlsv1.2 -LsSf https://github.com/sensiarion/youtrack-mcp/releases/latest/download/youtrack-mcp-installer.sh | sh
-```
-
-**Windows** — paste into PowerShell:
-
-```powershell
-powershell -ExecutionPolicy Bypass -c "irm https://github.com/sensiarion/youtrack-mcp/releases/latest/download/youtrack-mcp-installer.ps1 | iex"
-```
-
-The installer drops the binary at a fixed location and adds it to your `PATH`:
-
-| OS | Installed binary path |
-|---|---|
-| macOS / Linux | `~/.cargo/bin/youtrack-mcp` |
-| Windows | `%USERPROFILE%\.cargo\bin\youtrack-mcp.exe` |
-
-> **PATH note:** the installer edits your shell profile so `youtrack-mcp` works in *new* terminals, but the change does **not** apply to the terminal you ran it in until you restart it. To avoid PATH issues entirely, the MCP config in step 3 uses the **full path** above — that always works, no terminal restart needed.
-
-Check it installed (open a **new** terminal):
-
-```sh
-~/.cargo/bin/youtrack-mcp --help 2>/dev/null; echo "installed at: $(ls ~/.cargo/bin/youtrack-mcp 2>/dev/null || echo MISSING)"
-```
-
-### 2. Get a YouTrack token
+### 1. Get a YouTrack token
 
 In YouTrack: avatar → **Profile** → **Account Security** → **New token…** → scope **YouTrack** → copy the `perm-…` string. Treat it like a password.
 
-### 3. Register the MCP
+### 2. Register the MCP
 
 Two env vars are required: `YOUTRACK_URL` (e.g. `https://youtrack.example.com`) and `YOUTRACK_TOKEN` (the `perm-…` token).
 
-**Claude Code** — one command (uses the full path so PATH does not matter):
+**Claude Code** — one command:
 
 ```sh
 claude mcp add youtrack \
   --env YOUTRACK_URL=https://youtrack.example.com \
   --env YOUTRACK_TOKEN=perm-xxxx \
-  -- "$HOME/.cargo/bin/youtrack-mcp"
+  -- npx -y mcp-bin sensiarion/youtrack-mcp
 ```
 
-Windows (PowerShell):
-
-```powershell
-claude mcp add youtrack --env YOUTRACK_URL=https://youtrack.example.com --env YOUTRACK_TOKEN=perm-xxxx -- "$env:USERPROFILE\.cargo\bin\youtrack-mcp.exe"
-```
-
-**Claude Code / any client via JSON** — edit `~/.claude.json` (global) or project `.mcp.json`:
+**Any client via JSON** — Claude Code `~/.claude.json` (global) or project `.mcp.json`; Cursor `~/.cursor/mcp.json` (global) or `.cursor/mcp.json` (project):
 
 ```json
 {
   "mcpServers": {
     "youtrack": {
-      "command": "/Users/<you>/.cargo/bin/youtrack-mcp",
-      "args": [],
+      "command": "npx",
+      "args": ["-y", "mcp-bin", "sensiarion/youtrack-mcp"],
       "env": {
         "YOUTRACK_URL": "https://youtrack.example.com",
         "YOUTRACK_TOKEN": "perm-xxxx"
@@ -91,27 +74,11 @@ claude mcp add youtrack --env YOUTRACK_URL=https://youtrack.example.com --env YO
 }
 ```
 
-**Cursor** — `~/.cursor/mcp.json` (global) or `.cursor/mcp.json` (project):
-
-```json
-{
-  "mcpServers": {
-    "youtrack": {
-      "command": "/Users/<you>/.cargo/bin/youtrack-mcp",
-      "env": {
-        "YOUTRACK_URL": "https://youtrack.example.com",
-        "YOUTRACK_TOKEN": "perm-xxxx"
-      }
-    }
-  }
-}
-```
-
-Replace `/Users/<you>` with your home directory (`echo $HOME`). On Windows use `C:\\Users\\<you>\\.cargo\\bin\\youtrack-mcp.exe` (double backslashes in JSON). Restart the client; the `youtrack` tools appear.
+Pin a version by replacing `sensiarion/youtrack-mcp` with `sensiarion/youtrack-mcp@v0.1.2`. Restart the client; the `youtrack` tools appear.
 
 ### Update / uninstall
 
-Re-run the step 1 installer to update. To remove: delete the binary (`rm ~/.cargo/bin/youtrack-mcp`) and the `youtrack` entry from your client config.
+mcp-bin caches a release and reuses it forever by default. To move to a newer release run `npx mcp-bin expire sensiarion/youtrack-mcp` (or pin a tag, or add `--ttl 7d` before the repo in `args`). To uninstall, remove the `youtrack` entry from your client config.
 
 ---
 
@@ -149,7 +116,7 @@ Install straight from git:
 cargo install --git https://github.com/sensiarion/youtrack-mcp --locked
 ```
 
-(Binary lands in `~/.cargo/bin/youtrack-mcp` — same path as the prebuilt installer, so the step-3 MCP config is unchanged.)
+(Binary lands in `~/.cargo/bin/youtrack-mcp`; point your MCP client's `command` at that path instead of `npx mcp-bin`.)
 
 Or clone and build:
 
@@ -160,7 +127,7 @@ cargo build --release
 # binary at target/release/youtrack-mcp
 ```
 
-Releases (prebuilt binaries + installers for macOS Apple Silicon, Linux arm64/x64, Windows x64) are produced by [cargo-dist](https://opensource.axo.dev/cargo-dist/) on every `v*` tag. Intel Macs are not prebuilt — build from source as above (`cargo install --git …`); the binary path is identical.
+Prebuilt release binaries (macOS Apple Silicon, Linux arm64/x64, Windows x64) — the assets `mcp-bin` downloads — are produced by [cargo-dist](https://opensource.axo.dev/cargo-dist/) on every `v*` tag. Intel Macs are not prebuilt; build from source as above.
 
 ## License
 
