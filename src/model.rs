@@ -48,10 +48,11 @@ pub struct IssueWrite {
     pub tags: Option<Vec<String>>,
     #[serde(default)]
     pub state: Option<String>,
-    /// Agile board name.
+    /// Agile board name or id (any language/casing).
     #[serde(default)]
     pub board: Option<String>,
-    /// Sprint name (used with board).
+    /// Sprint name or id within `board`. The valid set is board-specific;
+    /// an unknown sprint errors with that board's available sprints.
     #[serde(default)]
     pub sprint: Option<String>,
 }

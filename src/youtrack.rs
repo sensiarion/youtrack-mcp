@@ -61,6 +61,21 @@ fn name_or_id_eq(node: &Value, needle: &str) -> bool {
     })
 }
 
+/// Comma-joined quoted `name`s of agile/sprint nodes, for "valid values"
+/// hints in resolution errors. A board exposes only its own sprints, so
+/// callers can't know the accepted set up front — surface it on failure.
+fn node_names(nodes: &[Value]) -> String {
+    let names: Vec<&str> = nodes
+        .iter()
+        .filter_map(|n| n.get("name").and_then(Value::as_str))
+        .collect();
+    if names.is_empty() {
+        "none".to_string()
+    } else {
+        names.iter().map(|n| format!("\"{n}\"")).collect::<Vec<_>>().join(", ")
+    }
+}
+
 impl YouTrack {
     pub fn new(cfg: Config) -> Result<Arc<Self>> {
         let mut headers = reqwest::header::HeaderMap::new();
@@ -303,7 +318,12 @@ impl YouTrack {
         let agile = boards
             .iter()
             .find(|b| name_or_id_eq(b, board))
-            .ok_or_else(|| AppError::Bad(format!("agile board not found: {board}")))?;
+            .ok_or_else(|| {
+                AppError::Bad(format!(
+                    "agile board not found: {board}. Available boards: {}",
+                    node_names(boards)
+                ))
+            })?;
         let aid = agile
             .get("id")
             .and_then(Value::as_str)
@@ -314,7 +334,12 @@ impl YouTrack {
                 .iter()
                 .find(|sp| name_or_id_eq(sp, s))
                 .and_then(|sp| sp.get("id").and_then(Value::as_str))
-                .ok_or_else(|| AppError::Bad(format!("sprint not found on board {board}: {s}")))?
+                .ok_or_else(|| {
+                    AppError::Bad(format!(
+                        "sprint \"{s}\" not found on board {board}. Valid sprints: {}",
+                        node_names(sprints)
+                    ))
+                })?
                 .to_string(),
             // Board membership on YouTrack is sprint-scoped. With no sprint
             // requested: a single-sprint board has an unambiguous target; an
@@ -328,7 +353,8 @@ impl YouTrack {
                 [] => return Ok(()),
                 _ => {
                     return Err(AppError::Bad(format!(
-                        "board {board} has multiple sprints; specify `sprint`"
+                        "board {board} has multiple sprints; specify `sprint`. Valid sprints: {}",
+                        node_names(sprints)
                     )));
                 }
             },

@@ -44,7 +44,7 @@ impl Server {
         Self { yt }
     }
 
-    #[tool(description = "Create, update or delete an issue: summary, description, parentId (native subtask), assignee, tags (must exist), state, board/sprint. op=delete is irreversible.")]
+    #[tool(description = "Create, update or delete an issue: summary, description, parentId (native subtask), assignee, tags (must exist), state, board/sprint. board+sprint resolve by name or id, any language/casing; a board exposes only its own sprints, so a wrong sprint errors with the valid sprint list for that board. op=delete is irreversible.")]
     async fn issue_write(&self, Parameters(a): Parameters<IssueWrite>) -> Result<String, ErrorData> {
         let v = match a.op {
             IssueOp::Create => self.yt.issue_create(&a).await?,
