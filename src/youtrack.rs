@@ -276,12 +276,70 @@ impl YouTrack {
             .await
     }
 
+    /// Attach an issue to an agile board/sprint.
+    ///
+    /// The `Board` apply-command keyword is localized by YouTrack (e.g. the
+    /// RU on-prem expects `Доска`), so command-based attach fails there with
+    /// "Неизвестная команда: Board". The agiles REST API is locale-independent,
+    /// so resolve the board/sprint by name and POST into the sprint's issues
+    /// collection instead.
     async fn set_board(&self, id_readable: &str, board: &str, sprint: Option<&str>) -> Result<()> {
-        let q = match sprint {
-            Some(s) => format!("Board {board} {s}"),
-            None => format!("Board {board}"),
+        let resp = self
+            .get("/api/agiles", &self.fq("id,name,sprints(id,name)"))
+            .await?;
+        let boards = resp.as_array().map(Vec::as_slice).unwrap_or(&[]);
+        let agile = boards
+            .iter()
+            .find(|b| {
+                let by_name = b.get("name").and_then(Value::as_str) == Some(board);
+                let by_id = b.get("id").and_then(Value::as_str) == Some(board);
+                by_name || by_id
+            })
+            .ok_or_else(|| AppError::Api {
+                status: 400,
+                message: format!("agile board not found: {board}"),
+            })?;
+        let aid = agile
+            .get("id")
+            .and_then(Value::as_str)
+            .ok_or_else(|| AppError::Api { status: 500, message: "agile board missing id".into() })?;
+        let sprints = agile.get("sprints").and_then(Value::as_array).map(Vec::as_slice).unwrap_or(&[]);
+        let sid = match sprint {
+            Some(s) => sprints
+                .iter()
+                .find(|sp| {
+                    let by_name = sp.get("name").and_then(Value::as_str) == Some(s);
+                    let by_id = sp.get("id").and_then(Value::as_str) == Some(s);
+                    by_name || by_id
+                })
+                .and_then(|sp| sp.get("id").and_then(Value::as_str))
+                .ok_or_else(|| AppError::Api {
+                    status: 400,
+                    message: format!("sprint not found on board {board}: {s}"),
+                })?
+                .to_string(),
+            // Board membership on YouTrack is sprint-scoped. With no sprint
+            // requested: a single-sprint board has an unambiguous target; an
+            // empty board is a no-op; a multi-sprint board needs a choice.
+            None => match sprints {
+                [only] => only
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| AppError::Api { status: 500, message: "sprint missing id".into() })?
+                    .to_string(),
+                [] => return Ok(()),
+                _ => {
+                    return Err(AppError::Api {
+                        status: 400,
+                        message: format!("board {board} has multiple sprints; specify `sprint`"),
+                    });
+                }
+            },
         };
-        self.command(&q, id_readable).await
+        let body = json!({"$type": "Issue", "idReadable": id_readable});
+        self.post(&format!("/api/agiles/{aid}/sprints/{sid}/issues"), &[], &body)
+            .await?;
+        Ok(())
     }
 
     pub async fn issue_delete(&self, id: &str) -> Result<Value> {
