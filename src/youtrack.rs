@@ -48,6 +48,19 @@ fn require<'a>(opt: Option<&'a String>, msg: &str) -> Result<&'a str> {
         .ok_or_else(|| AppError::Bad(msg.to_string()))
 }
 
+/// True if `node.name` or `node.id` matches `needle`, comparing trimmed and
+/// case-folded. `to_lowercase` is full-Unicode (folds Cyrillic/Greek/etc.),
+/// so names in any language/script and any casing resolve — not just exact
+/// bytes. Used to resolve agile boards/sprints supplied by name.
+fn name_or_id_eq(node: &Value, needle: &str) -> bool {
+    let want = needle.trim().to_lowercase();
+    ["name", "id"].iter().any(|k| {
+        node.get(k)
+            .and_then(Value::as_str)
+            .is_some_and(|s| s.trim().to_lowercase() == want)
+    })
+}
+
 impl YouTrack {
     pub fn new(cfg: Config) -> Result<Arc<Self>> {
         let mut headers = reqwest::header::HeaderMap::new();
@@ -278,11 +291,10 @@ impl YouTrack {
 
     /// Attach an issue to an agile board/sprint.
     ///
-    /// The `Board` apply-command keyword is localized by YouTrack (e.g. the
-    /// RU on-prem expects `Доска`), so command-based attach fails there with
-    /// "Неизвестная команда: Board". The agiles REST API is locale-independent,
-    /// so resolve the board/sprint by name and POST into the sprint's issues
-    /// collection instead.
+    /// The `Board` apply-command keyword is localized per YouTrack instance,
+    /// so command-based attach is not portable across instances/languages.
+    /// The agiles REST collection is locale-independent: resolve the board and
+    /// sprint by name (or id) and POST into the sprint's issues collection.
     async fn set_board(&self, id_readable: &str, board: &str, sprint: Option<&str>) -> Result<()> {
         let resp = self
             .get("/api/agiles", &self.fq("id,name,sprints(id,name)"))
@@ -290,15 +302,8 @@ impl YouTrack {
         let boards = resp.as_array().map(Vec::as_slice).unwrap_or(&[]);
         let agile = boards
             .iter()
-            .find(|b| {
-                let by_name = b.get("name").and_then(Value::as_str) == Some(board);
-                let by_id = b.get("id").and_then(Value::as_str) == Some(board);
-                by_name || by_id
-            })
-            .ok_or_else(|| AppError::Api {
-                status: 400,
-                message: format!("agile board not found: {board}"),
-            })?;
+            .find(|b| name_or_id_eq(b, board))
+            .ok_or_else(|| AppError::Bad(format!("agile board not found: {board}")))?;
         let aid = agile
             .get("id")
             .and_then(Value::as_str)
@@ -307,16 +312,9 @@ impl YouTrack {
         let sid = match sprint {
             Some(s) => sprints
                 .iter()
-                .find(|sp| {
-                    let by_name = sp.get("name").and_then(Value::as_str) == Some(s);
-                    let by_id = sp.get("id").and_then(Value::as_str) == Some(s);
-                    by_name || by_id
-                })
+                .find(|sp| name_or_id_eq(sp, s))
                 .and_then(|sp| sp.get("id").and_then(Value::as_str))
-                .ok_or_else(|| AppError::Api {
-                    status: 400,
-                    message: format!("sprint not found on board {board}: {s}"),
-                })?
+                .ok_or_else(|| AppError::Bad(format!("sprint not found on board {board}: {s}")))?
                 .to_string(),
             // Board membership on YouTrack is sprint-scoped. With no sprint
             // requested: a single-sprint board has an unambiguous target; an
@@ -329,10 +327,9 @@ impl YouTrack {
                     .to_string(),
                 [] => return Ok(()),
                 _ => {
-                    return Err(AppError::Api {
-                        status: 400,
-                        message: format!("board {board} has multiple sprints; specify `sprint`"),
-                    });
+                    return Err(AppError::Bad(format!(
+                        "board {board} has multiple sprints; specify `sprint`"
+                    )));
                 }
             },
         };
@@ -1001,6 +998,15 @@ mod tests {
         assert!(!is_id("Culture-510"));
         assert!(!is_id("123"));
         assert!(!is_id("a-b"));
+    }
+
+    #[test]
+    fn name_or_id_eq_folds_case_trim_and_non_latin() {
+        let node = json!({"name": "ЦРППО", "id": "98-53"});
+        assert!(name_or_id_eq(&node, "црппо"));
+        assert!(name_or_id_eq(&node, "  ЦРппО "));
+        assert!(name_or_id_eq(&node, "98-53"));
+        assert!(!name_or_id_eq(&node, "other"));
     }
 
     #[test]
