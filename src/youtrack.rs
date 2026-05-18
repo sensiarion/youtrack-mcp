@@ -65,15 +65,13 @@ fn name_or_id_eq(node: &Value, needle: &str) -> bool {
 /// hints in resolution errors. A board exposes only its own sprints, so
 /// callers can't know the accepted set up front — surface it on failure.
 fn node_names(nodes: &[Value]) -> String {
-    let names: Vec<&str> = nodes
+    let joined = nodes
         .iter()
         .filter_map(|n| n.get("name").and_then(Value::as_str))
-        .collect();
-    if names.is_empty() {
-        "none".to_string()
-    } else {
-        names.iter().map(|n| format!("\"{n}\"")).collect::<Vec<_>>().join(", ")
-    }
+        .map(|n| format!("\"{n}\""))
+        .collect::<Vec<_>>()
+        .join(", ");
+    if joined.is_empty() { "none".to_string() } else { joined }
 }
 
 impl YouTrack {
@@ -1033,6 +1031,17 @@ mod tests {
         assert!(name_or_id_eq(&node, "  ЦРппО "));
         assert!(name_or_id_eq(&node, "98-53"));
         assert!(!name_or_id_eq(&node, "other"));
+    }
+
+    #[test]
+    fn node_names_quotes_joins_and_handles_empty() {
+        let nodes = vec![json!({"name": "Первый спринт"}), json!({"name": "2 Спринт"})];
+        assert_eq!(node_names(&nodes), "\"Первый спринт\", \"2 Спринт\"");
+    }
+
+    #[test]
+    fn node_names_empty_is_none() {
+        assert_eq!(node_names(&[]), "none");
     }
 
     #[test]
