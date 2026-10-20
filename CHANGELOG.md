@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.5
+
+- support of native tls certificates
+
 ## 0.1.4
 
 Attachments are usable from an agent now. Plus a paging bug that ran through the
